@@ -1,0 +1,10 @@
+{
+  "name": "megagem-skill",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Herdr-backed worker coordination skill for Pi",
+  "pi": {
+    "skills": ["./skills/megagem"],
+    "extensions": ["./extensions/megagem-feedback.ts"]
+  }
+}
