@@ -10,7 +10,7 @@ A Pi skill and companion Pi extension that coordinate coding workers in Herdr. T
 
 ## Install for Pi
 
-From this repository, run `pi install ./` (or `pi install ./ -l` for a project-local installation). Pi loads both `skills/megagem/SKILL.md` and `extensions/megagem-feedback.ts` via `package.json`. Run `/reload` in an existing Pi session to pick up changes. For a one-off run, start Pi with `pi --skill ./skills/megagem --extension ./extensions/megagem-feedback.ts` from this repository. Loading only the skill retains manual `/skill:megagem stato` checks but **not** automatic feedback.
+From this repository, run `pi install ./` (or `pi install ./ -l` for a project-local installation). Pi loads `skills/megagem/SKILL.md`, `extensions/megagem-feedback.ts` and `extensions/megagem-quiet.ts` via `package.json`. Run `/reload` in an existing Pi session to pick up changes. For a one-off run, start Pi with `pi --skill ./skills/megagem --extension ./extensions/megagem-feedback.ts` from this repository. Loading only the skill retains manual `/skill:megagem stato` checks but **not** automatic feedback.
 
 Invoke explicitly:
 
@@ -36,9 +36,30 @@ Example dispatch reply when Herdr reports workspace label `api` and tab label `l
 compito assegnato a api/login
 ```
 
+### Event delivery and empty-reply guard
+
+Worker events reach the coordinator as a **user-role** message (`pi.sendUserMessage(..., { deliverAs: "followUp" })`) that starts with `[Megagem automatic worker notification - not typed by the user]`. In an A/B replay of the real session, custom-role (`sendMessage`) triggers gave a visible reply in 1 of 6 runs and often an empty assistant message (`stopReason: stop`, no text), while user-role triggers did in 7 of 7; wording, session-id format and the ADHD ruleset made no consistent difference. The cause inside Pi is not known.
+
+`extensions/feedback-guard.ts` tracks each delivered event. If Pi settles and the event still has no visible textual reply (a tool-call-only message does not count), it sends **one** reminder through the same user-role path; if that is also empty, or the run was aborted, it shows a warning notification plus a durable `megagem-feedback-alert` message (no new turn) saying the result is **not verified**. Messages contain only coordinator-owned fields (task label, state, pane), never worker output, and never claim success. Bounded: one reminder per event, one alert; you can type new instructions at any time.
+
+Helper modules are `.ts` because `/reload` re-reads `.ts` imports but reuses already-loaded `.mjs` modules; restart Pi once after updating from an older install.
+
+## Quiet mode (`/quiet-mode`)
+
+```text
+/quiet-mode          toggle
+/quiet-mode on       hide tool calls and outputs in this Pi chat
+/quiet-mode off      default Pi display
+/quiet-mode status
+```
+
+Opt-in and **off by default**. It uses Pi's public `registerToolRenderer` API to draw **no** row for any tool call (built-in, MCP or `megagem_dispatch`), leaving user messages, assistant replies and worker feedback. Applies immediately to rows already on screen and survives `/reload` and resume (stored as a non-context custom session entry; new sessions start OFF). Needs `extensions/megagem-quiet.ts` loaded; a skill alone cannot hide Pi-rendered tool calls.
+
+It changes drawing only: tools still run, approval dialogs and `tool_call` guards still work, the session history/audit keeps every call and result, and Ctrl+O does not reveal rows while ON. A **failed** tool shows one fixed line (no output, so no secrets) so a failure is never silent. Not covered: `!`/`!!` user shell commands, thinking blocks (Ctrl+T / `hideThinkingBlock`), startup header (`quietStartup`), images in tool results, and Pi/extension notifications and approval prompts.
+
 ## Validation
 
-Run the deterministic monitor tests with `node --test tests/*.test.mjs`. They cover nonblocking dispatch, fast completion, blocked/uncertain workers, identity changes, reload recovery and the queued Pi feedback message. These do **not** claim to test a real worker or live Herdr integration.
+Run the deterministic monitor and guard tests with `node --test tests/*.test.mjs`. They cover quiet-mode parsing, persistence and rendering (the last test drives Pi's real `ToolExecutionComponent` when Pi is found via `PI_CODING_AGENT_DIR` or the global npm prefix, otherwise it is skipped), nonblocking dispatch, fast completion, blocked/uncertain workers, identity changes, reload recovery and the queued Pi feedback message. These do **not** claim to test a real worker or live Herdr integration.
 
 Use an isolated Herdr session/project before exercising control behavior; **do not run these against live user workspaces**:
 
@@ -53,4 +74,4 @@ Use an isolated Herdr session/project before exercising control behavior; **do n
 - User interrupts worker: report and pause; resume only after explicit user notice and state inspection.
 - Specified unavailable model: ask before substituting it.
 
-Repository layout: `skills/megagem/SKILL.md` is the workflow, `extensions/megagem-feedback.ts` is the Pi adapter, and `AGENTS.md` records contribution constraints. The extension runs only in the coordinator's Pi process; it does not start a separate daemon or watch arbitrary user tabs. No agent or model selections are hardcoded.
+Repository layout: `skills/megagem/SKILL.md` is the workflow, `extensions/megagem-feedback.ts` is the Pi adapter, `extensions/megagem-quiet.ts` + `quiet-mode.ts` the optional quiet-mode adapter, and `AGENTS.md` records contribution constraints. The extension runs only in the coordinator's Pi process; it does not start a separate daemon or watch arbitrary user tabs. No agent or model selections are hardcoded.

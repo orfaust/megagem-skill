@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createFeedbackMonitor, publishFeedbackToPi } from "./feedback-monitor.mjs";
+import { createFeedbackGuard } from "./feedback-guard.ts";
+import { createFeedbackMonitor, publishFeedbackToPi } from "./feedback-monitor.ts";
 
 const exec = promisify(execFile);
 const ENTRY_TYPE = "megagem-feedback-job";
@@ -25,9 +26,19 @@ export default function (pi: ExtensionAPI) {
       .filter(entry => entry.type === "custom" && entry.customType === ENTRY_TYPE)
       .map(entry => entry.data));
   }
-  pi.on("session_start", (_event, ctx) => restore(ctx));
-  pi.on("session_tree", (_event, ctx) => restore(ctx));
-  pi.on("session_shutdown", () => monitor.stop());
+  const guard = createFeedbackGuard();
+  pi.on("session_start", (_event, ctx) => { guard.reset(); restore(ctx); });
+  pi.on("session_tree", (_event, ctx) => { guard.reset(); restore(ctx); });
+  pi.on("session_shutdown", () => { monitor.stop(); guard.reset(); });
+  pi.on("message_end", event => { guard.onMessageEnd(event.message); });
+  pi.on("agent_settled", (event, ctx) => {
+    const result = guard.settled({ aborted: event.aborted });
+    if (result?.retry) pi.sendUserMessage(result.retry, { deliverAs: "followUp" }); // Deferred by Pi until settlement completes.
+    if (result?.alert) {
+      if (ctx.hasUI) ctx.ui.notify(result.alert.text, "warning");
+      pi.sendMessage(result.alert.message, { triggerTurn: false }); // Visible, durable, never starts a turn.
+    }
+  });
 
   pi.registerTool({
     name: "megagem_dispatch",

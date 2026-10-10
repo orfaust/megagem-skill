@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createFeedbackMonitor, publishFeedbackToPi } from "../extensions/feedback-monitor.mjs";
+import { createFeedbackMonitor, publishFeedbackToPi } from "../extensions/feedback-monitor.ts";
 
 const input = { paneId: "w2:p3", tabId: "w2:t3", workspaceId: "w2", sessionId: "claude-123",
   project: "C:\\Projects\\demo", taskLabel: "readme", prompt: "Inspect the README" };
@@ -73,13 +73,14 @@ test("refuses wrong identity or busy worker before sending a prompt", async () =
   }
 });
 
-test("publishes a follow-up in the main Pi conversation without claiming success", () => {
+test("publishes a user-role follow-up in the main Pi conversation without claiming success", () => {
   const messages = [];
-  publishFeedbackToPi({ sendMessage: (...args) => messages.push(args) }, { ...input, state: "settled" });
+  publishFeedbackToPi({ sendUserMessage: (...args) => messages.push(args) }, { ...input, id: "j1", state: "settled" });
   assert.equal(messages.length, 1);
-  assert.equal(messages[0][0].customType, "megagem-feedback");
-  assert.match(messages[0][0].content, /NOT proof the task succeeded/);
-  assert.deepEqual(messages[0][1], { triggerTurn: true, deliverAs: "followUp" });
+  assert.match(messages[0][0], /^\[Megagem automatic worker notification - not typed by the user\] /);
+  assert.match(messages[0][0], /NOT proof the task succeeded/);
+  assert.match(messages[0][0], /"feedbackId":"j1"/);
+  assert.deepEqual(messages[0][1], { deliverAs: "followUp" });
 });
 
 test("does not dispatch a second prompt to a still-monitored pane", async () => {

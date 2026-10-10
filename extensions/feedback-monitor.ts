@@ -1,12 +1,11 @@
 import { randomUUID } from "node:crypto";
-
-/** Queue a model turn without impersonating a user or interrupting their current turn. */
-export function publishFeedbackToPi(pi, job) {
-  const content = `Megagem worker event: ${JSON.stringify({ state: job.state, task: job.taskLabel,
-    project: job.project, pane: job.paneId, tab: job.tabId, workspace: job.workspaceId,
-    session: job.sessionId })}. This is NOT proof the task succeeded. Check herdr agent get/read for that pane and verify actual files/tests before reporting completion in this main chat. For blocked/uncertain/interrupted/monitor_error, report the blocker; do not approve, repeat the prompt or run queued work automatically.`;
-  pi.sendMessage({ customType: "megagem-feedback", content, display: true },
-    { triggerTurn: true, deliverAs: "followUp" });
+import { EVENT_NOTICE } from "./feedback-guard.ts";
+/** Queue a model turn as a user-role message (measured far more reliable than a custom-role trigger). */
+export function publishFeedbackToPi(pi: any, job: any) {
+  const data = { feedbackId: job.id, state: job.state, task: job.taskLabel, project: job.project, pane: job.paneId,
+    tab: job.tabId, workspace: job.workspaceId, session: job.sessionId };
+  const content = `${EVENT_NOTICE}Megagem worker event: ${JSON.stringify(data)}. This is NOT proof the task succeeded. Required: check herdr agent get/read for that pane and verify actual files/tests, then ALWAYS give the user a visible reply in this main chat with the verified result or blocker (never an empty reply). For blocked/uncertain/interrupted/monitor_error, report the blocker; do not approve, repeat the prompt or run queued work automatically.`;
+  pi.sendUserMessage(content, { deliverAs: "followUp" });
 }
 
 const SETTLED = new Set(["done", "idle"]);
