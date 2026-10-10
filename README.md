@@ -1,79 +1,68 @@
 # Megagem
 
-A Pi skill and companion Pi extension that coordinate coding workers in Herdr. The **main Pi conversation** remains the user's point of contact. Pi assigns bounded tasks to visible worker tabs (Pi, Claude or Codex) and **returns immediately after dispatch**. When a Megagem-dispatched worker settles, the extension wakes Pi to verify the result and reply in the main chat; you can give Pi another instruction while the worker runs. You can still open and intervene in worker tabs.
+A Pi skill plus a companion Pi extension that coordinate coding workers in Herdr. You keep talking to the **main Pi chat**; Pi hands bounded tasks to visible worker tabs (Pi, Claude or Codex), replies at once, and comes back with a verified result when the worker settles. You can give Pi new instructions while workers run, and you can open or intervene in any worker tab.
 
-## Prerequisites
+## Requirements
 
-- Herdr CLI and a compatible running Herdr server; **start Pi inside a Herdr-managed pane** (`HERDR_ENV=1`). Megagem stops rather than manipulating a Herdr session from outside it.
-- Pi with the Agent Skills command enabled. Install and authenticate any worker CLI you want Megagem to use; Herdr supports more agents, but this initial skill routes only Pi, Claude and Codex.
-- Review the skill before installation. Installing it does not create workspaces or start workers; those actions happen only on an explicit request.
+- Herdr CLI and a running Herdr server. Start Pi **inside a Herdr pane** (`HERDR_ENV=1`); Megagem refuses to touch Herdr from outside it.
+- Pi, plus any worker CLI you want to use (Pi, Claude or Codex), installed and authenticated.
+- Installing creates no workspaces and starts no workers; that only happens when you ask.
 
-## Install for Pi
+## Install
 
-From this repository, run `pi install ./` (or `pi install ./ -l` for a project-local installation). Pi loads `skills/megagem/SKILL.md`, `extensions/megagem-feedback.ts` and `extensions/megagem-quiet.ts` via `package.json`. Run `/reload` in an existing Pi session to pick up changes. For a one-off run, start Pi with `pi --skill ./skills/megagem --extension ./extensions/megagem-feedback.ts` from this repository. Loading only the skill retains manual `/skill:megagem status` checks but **not** automatic feedback.
+Package name: `pi-megagem` (not published yet; install from a local checkout).
 
-Invoke explicitly:
+```bash
+pi install ./         # or: pi install ./ -l   (project-local)
+```
+
+Run `/reload` in a running Pi session afterwards. With only the skill loaded, `/skill:megagem status` works but there is no automatic feedback.
+
+## Use
 
 ```text
 /skill:megagem In C:\path\to\project, implement the login and verify the tests
 ```
 
-`/skill:megagem` is Pi's built-in explicit skill invocation. There is **no `/megagem` command or Pi extension in this MVP**: a normal message beginning with “megagem” is not a guaranteed trigger. If an alias becomes necessary, add a thin Pi adapter later; keep coordination rules in the skill so other hosts can reuse them with their own installation and command integration. Claude or Codex acting as a **worker** does not require Claude/Codex to install this skill. Making either a **coordinator** is separate future work.
-
-## Behavior
-
-1. Resolve the project from an explicit path, otherwise the coordinator's current project directory; ask if ambiguous. Check `HERDR_ENV=1` and Herdr availability before touching its layout.
-2. Match workspaces by canonical pane cwd rather than label; reuse a suitable workspace or create one with the project's absolute path and `--no-focus`. A new workspace's JSON already returns its tab and root pane: use that pane for the worker if it is an available, ready shell with verified cwd, unless a separate tab was explicitly requested; do not create a redundant tab. Never reuse an unrelated user's tab.
-3. Choose agent/model/thinking by explicit request, then preferences, then the least expensive **capable** option with suitable latency and quality. Ask before any unavailable-model fallback; verify native CLI flags rather than assuming all CLIs use Pi's thinking levels. Starting a new CLI/agent still takes time; never disable MCP, extensions or similar features solely for speed without approval.
-4. For every `/skill:megagem` implementation request, including edits to this repository's skill or extension and first-time workspace/worker bootstrap, delegate file changes to a suitable worker tab. Pi may inspect, verify, and commit/push if requested, but never implement files itself; if no worker can be started, report the blocker without local edits. Fast path: reuse the same dedicated worker/tab when canonical cwd, live identity/session, ready state, no pause/intervention, and suitable model/thinking are verified; do not create tabs by habit unless requested. Combine read-only discovery or reuse trustworthy results in the same invocation, but always check `HERDR_ENV=1` before Herdr control commands, compatible `herdr status`, real project identity, pane readiness and permissions. Dispatch independent tasks in separate tabs **without waiting** by default, including with one worker. When available, the Pi extension's `megagem_dispatch` tool submits the prompt and watches that specific pane/session; after confirmed submission Pi replies only `task assigned to <workspace>/<tab name> — <agent> <model>, <thinking label> <level>`, **translated into the language of your request**, with real Herdr labels and the agent, model and thinking level chosen for the task (one line per successful task), not a claim of completion. No status, ledger, estimates or other text in that dispatch reply; if submission is blocked, fails or is uncertain, report it truthfully instead. Keep the ledger internal. Serialize conflicting edits on the same worker session. Separate tabs do not isolate repository files.
-5. After Herdr reports a watched worker as settled or blocked, the extension sends an event to the **same running Pi session**. Pi then checks the actual files/tests and reports the verified result or blocker here; a settled state alone is not proof of success. If Pi is busy, the event queues as a follow-up instead of interrupting the current turn. `/skill:megagem status` still works manually. Closing Pi stops monitoring; reopening the same session restores pending watches. If only the skill is loaded, no automatic event is possible. If you explicitly ask Pi to **wait for completion**, it may instead use a timed wait and remain busy during that turn. Leave tabs open; unexpected user intervention pauses further automatic prompts to that worker.
-
-The skill never approves agent prompts, bypasses permissions, stops Herdr or closes someone else's tabs. A successful prompt submission is not a successful task. Verification and automatic completion feedback remain in a **later** reply, separate from the one-line assignment message. The explicit one-line format for that message overrides general ADHD advice to include next actions or state.
-
-Example dispatch reply when Herdr reports workspace label `api` and tab label `login` (illustrative labels, not IDs):
+`/skill:megagem` is the only entry point (there is no `/megagem` alias). Pi finds or creates the project's workspace, picks a suitable worker, dispatches **without waiting**, and answers with one line per task:
 
 ```text
 task assigned to api/login — claude sonnet, effort medium
 ```
 
-Only the leading phrase is translated: labels, agent, model identifiers and the thinking term (`thinking` for Pi, `effort` for Claude, `reasoning` for Codex) are not. The agent is the live value Herdr reports; model and level are what Megagem actually passed at startup (or recorded for a reused worker). Herdr does not expose them, so when they cannot be verified the line says so (for example `codex model unverified, reasoning unverified`, with "unverified" translated) instead of guessing. **Every reply follows the language you write in, whatever that language or variant is, including regional languages and dialects.** If it is ambiguous (mixed languages or no identifiable language), Pi uses the language of your most recent earlier message, otherwise English. Fixed identifiers, Herdr states, commands and the `[Megagem automatic …]` notice prefixes stay as they are. Notices produced by the extension itself (`/quiet-mode` messages, the one-line failed-tool notice and the unanswered-event alert) are fixed English text because the extension cannot detect your language; Pi's own replies are not.
+- `api/login` are the real Herdr workspace/tab labels; `claude sonnet, effort medium` are the agent, model and thinking level used for that task.
+- Only the leading phrase is translated. Labels, agent, model identifiers and the thinking term (`thinking` for Pi, `effort` for Claude, `reasoning` for Codex) never are.
+- Herdr does not expose model or thinking level, so Pi prints what it actually passed at startup. If that cannot be verified the line says so (for example `codex model unverified, reasoning unverified`) instead of guessing.
+- **Every reply follows the language you write in, whatever that language or variant is, including regional languages and dialects.** If it is ambiguous (mixed languages or no identifiable language), Pi uses your most recent earlier message, otherwise English.
 
-### Event delivery and empty-reply guard
+The assignment is not a completion claim. Edits are always delegated to a worker; Pi inspects and verifies but does not implement files itself, never approves worker prompts or bypasses permissions, and never closes your tabs. Conflicting edits are serialized in one worker; independent tasks get separate tabs. If you intervene in a worker tab, automation for it pauses until you say you are done. The full rules live in [`skills/megagem/SKILL.md`](skills/megagem/SKILL.md).
 
-Worker events reach the coordinator as a **user-role** message (`pi.sendUserMessage(..., { deliverAs: "followUp" })`) that starts with `[Megagem automatic worker notification - not typed by the user]`. In an A/B replay of the real session, custom-role (`sendMessage`) triggers gave a visible reply in 1 of 6 runs and often an empty assistant message (`stopReason: stop`, no text), while user-role triggers did in 7 of 7; wording, session-id format and the ADHD ruleset made no consistent difference. The cause inside Pi is not known.
+## Automatic feedback
 
-`extensions/feedback-guard.ts` tracks each delivered event. If Pi settles and the event still has no visible textual reply (a tool-call-only message does not count), it sends **one** reminder through the same user-role path; if that is also empty, or the run was aborted, it shows a warning notification plus a durable `megagem-feedback-alert` message (no new turn) saying the result is **not verified**. Messages contain only coordinator-owned fields (task label, state, pane), never worker output, and never claim success. Bounded: one reminder per event, one alert; you can type new instructions at any time.
+When a worker dispatched by Megagem settles or blocks, the extension sends one automatic message to the same Pi session (queued if Pi is busy). Pi then checks the live Herdr state, files and tests and reports the **verified** result or blocker in the main chat. A settled state alone is never proof of success.
 
-Helper modules are `.ts` because `/reload` re-reads `.ts` imports but reuses already-loaded `.mjs` modules; restart Pi once after updating from an older install.
+If Pi answers that message with nothing visible, the extension reminds it once; if that fails too, you get a warning plus a saved alert saying the result is **not verified**. Closing Pi stops monitoring; reopening the session restores pending watches.
 
-## Quiet mode (`/quiet-mode`)
+## Quiet mode
 
-```text
-/quiet-mode          toggle
-/quiet-mode on       hide tool calls and outputs in this Pi chat
-/quiet-mode off      default Pi display
-/quiet-mode status
+`/quiet-mode [on|off|status]` (no argument toggles) hides all tool calls and outputs in the Pi chat so you read only the conversation. It is **off by default**, applies immediately, and survives `/reload` and resume. It changes drawing only: tools still run, approvals and the session history are untouched, and a failed tool still shows one line (without output). Not hidden: `!` shell commands, thinking blocks (Ctrl+T), the startup header, images in tool results, and Pi notifications.
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| "requires a Herdr-managed Pi pane" | Start Pi from a Herdr pane (`HERDR_ENV=1`). |
+| No automatic message after a worker finishes | Only the skill is loaded: install the package and `/reload`. |
+| Updated an older install and old behavior persists | Restart Pi once; `/reload` does not refresh previously loaded `.mjs` helpers. |
+| `/quiet-mode` missing | `extensions/megagem-quiet.ts` is not loaded; check `pi list`. |
+| Extension notices are in English | The extension cannot detect your language; Pi's own replies follow it. |
+
+## Development
+
+```bash
+node --test tests/*.test.mjs
 ```
 
-Opt-in and **off by default**. It uses Pi's public `registerToolRenderer` API to draw **no** row for any tool call (built-in, MCP or `megagem_dispatch`), leaving user messages, assistant replies and worker feedback. Applies immediately to rows already on screen and survives `/reload` and resume (stored as a non-context custom session entry; new sessions start OFF). Needs `extensions/megagem-quiet.ts` loaded; a skill alone cannot hide Pi-rendered tool calls.
+The tests are deterministic: monitor and dispatch logic, the empty-reply guard, quiet-mode parsing/rendering (using Pi's real `ToolExecutionComponent` when Pi is found via `PI_CODING_AGENT_DIR` or the global npm prefix) and the language/assignment-format rules. They do not exercise a real worker or live Herdr.
 
-It changes drawing only: tools still run, approval dialogs and `tool_call` guards still work, the session history/audit keeps every call and result, and Ctrl+O does not reveal rows while ON. A **failed** tool shows one fixed line (no output, so no secrets) so a failure is never silent. Not covered: `!`/`!!` user shell commands, thinking blocks (Ctrl+T / `hideThinkingBlock`), startup header (`quietStartup`), images in tool results, and Pi/extension notifications and approval prompts.
-
-## Validation
-
-Run the deterministic monitor and guard tests with `node --test tests/*.test.mjs`. They cover quiet-mode parsing, persistence and rendering (the last test drives Pi's real `ToolExecutionComponent` when Pi is found via `PI_CODING_AGENT_DIR` or the global npm prefix, otherwise it is skipped), nonblocking dispatch, fast completion, blocked/uncertain workers, identity changes, reload recovery and the queued Pi feedback message. These do **not** claim to test a real worker or live Herdr integration.
-
-Use an isolated Herdr session/project before exercising control behavior; **do not run these against live user workspaces**:
-
-- Ambiguous project: asks before creating a workspace.
-- Existing workspace with matching pane cwd: reuses it; matching label alone does not decide.
-- New workspace/root pane, then worker reuse: in an isolated project with no matching workspace, request one `/skill:megagem` edit. Confirm the returned workspace JSON tab/root pane is used for the worker if its shell/cwd/readiness are suitable, with no redundant `herdr tab create`. After the first task is verified, request another compatible edit: confirm live cwd, identity/session, ready state, no pause/intervention and model/thinking suitability, then reuse that worker/tab without restarting it. Check that both dispatches return without waiting; never skip safety checks or disable integrations for speed.
-- Megagem self-edit during bootstrap: in an isolated copy of `megagem-skill` with no matching workspace, request `/skill:megagem` to change `skills/megagem/SKILL.md` (repeat for `extensions/megagem-feedback.ts`). Confirm Pi uses the returned root pane if suitable, delegates all file edits there and returns after submission without waiting; inspect the diff and worker output to confirm Pi made no direct edits. If the worker cannot start, the repository stays unchanged and Pi reports the blocker instead of editing locally.
-- Assignment reply format: in an isolated session, dispatch a task to a tab whose live Herdr workspace/tab labels are known; assert that the entire reply is exactly one line, the translation of the leading phrase of `task assigned to <workspace>/<tab name> — <agent> <model>, <thinking label> <level>` into the language of the request, with the agent, model and level actually used (and `unverified` for any that cannot be verified, never an invented value) (repeat with requests in different languages and with an ambiguous request such as only a path), with those labels untranslated, no ID, ledger or extra line. Dispatch two independent tasks: assert exactly one line per successful submission. Simulate a blocked, failed or uncertain submission (and missing/unverifiable labels): assert truthful reporting, never an assignment claim. After a successful worker settles, check that verification and automatic final feedback arrive in a later turn, not in the assignment reply.
-- One slow task: prompt sent without `--wait`, Pi accepts another instruction; after the worker settles, a feedback message triggers verification and a reply in the main chat (while Pi remains running).
-- Two independent read-only tasks: distinct tabs and independent completion feedback; two conflicting edits: same worker, sequential prompts only after the previous result is verified and the user authorizes continuation.
-- Blocked worker or prompt timeout: inspect state and ask, never auto-approve or duplicate the prompt.
-- User interrupts worker: report and pause; resume only after explicit user notice and state inspection.
-- Specified unavailable model: ask before substituting it.
-
-Repository layout: `skills/megagem/SKILL.md` is the workflow, `extensions/megagem-feedback.ts` is the Pi adapter, `extensions/megagem-quiet.ts` + `quiet-mode.ts` the optional quiet-mode adapter, and `AGENTS.md` records contribution constraints. The extension runs only in the coordinator's Pi process; it does not start a separate daemon or watch arbitrary user tabs. No agent or model selections are hardcoded.
+Layout: `skills/megagem/SKILL.md` (workflow), `extensions/megagem-feedback.ts` (dispatch tool, monitor, guard), `extensions/megagem-quiet.ts` (quiet mode), `tests/`. Maintainer notes and the manual verification scenarios (run only in an isolated Herdr session, never on live workspaces) are in [`AGENTS.md`](AGENTS.md).

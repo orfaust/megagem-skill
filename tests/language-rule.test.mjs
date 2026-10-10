@@ -48,7 +48,7 @@ test("README states the same generic rule and shows only the English single-line
   assert.match(readme, /Every reply follows the language you write in, whatever that language or variant is, including regional languages and dialects/);
   assert.match(readme, /otherwise English/);
   assert.match(readme, /codex model unverified, reasoning unverified/);
-  assert.match(readme, /Herdr does not expose them/);
+  assert.match(readme, /Herdr does not expose model or thinking level/);
   // Only the example's own text and the test-case description may mention a leading phrase; no other languages.
   assert.doesNotMatch(readme, languageCatalogue);
   assert.doesNotMatch(readme, /compito assegnato/i);

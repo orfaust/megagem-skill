@@ -1,10 +1,22 @@
 {
-  "name": "megagem-skill",
+  "name": "pi-megagem",
   "version": "0.1.0",
   "private": true,
   "description": "Herdr-backed worker coordination skill for Pi",
+  "keywords": [
+    "pi-package"
+  ],
+  "files": [
+    "skills",
+    "extensions",
+    "README.md"
+  ],
   "pi": {
     "skills": ["./skills/megagem"],
     "extensions": ["./extensions/megagem-feedback.ts", "./extensions/megagem-quiet.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
   }
 }
