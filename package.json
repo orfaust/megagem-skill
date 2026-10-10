@@ -1,8 +1,8 @@
 {
   "name": "pi-megagem",
   "version": "0.1.0",
-  "private": true,
   "description": "Herdr-backed worker coordination skill for Pi",
+  "author": "Carlo Veneziano <carlorfeo@gmail.com>",
   "keywords": [
     "pi-package"
   ],

@@ -10,11 +10,11 @@ A Pi skill plus a companion Pi extension that coordinate coding workers in Herdr
 
 ## Install
 
-Package name: `pi-megagem` (not published yet; install from a local checkout).
-
 ```bash
-pi install ./         # or: pi install ./ -l   (project-local)
+pi install npm:pi-megagem        # or add -l for a project-local install
 ```
+
+For development, install from a local checkout instead: `pi install .` (from the repository root).
 
 Run `/reload` in a running Pi session afterwards. With only the skill loaded, `/skill:megagem status` works but there is no automatic feedback.
 
