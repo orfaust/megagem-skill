@@ -70,6 +70,21 @@ test("typed text, other user messages and custom messages are not events; worker
   assert.match(last.alert.text, /one.*two/);
 });
 
+test("(e) a deferred event is marked awaiting the user and never retried or alerted", () => {
+  const guard = createFeedbackGuard();
+  guard.defer("j1");
+  assert.equal(guard.deferred, 1);
+  assert.equal(guard.pending, 0);
+  assert.equal(guard.settled({ aborted: false }), undefined, "settle while waiting for Enter must not retry or alert");
+  // Once released, the user-role event message starts the normal guard cycle again.
+  guard.release("j1");
+  assert.equal(guard.deferred, 0);
+  guard.onMessageEnd(eventMessage("j1"));
+  guard.onMessageEnd(assistant([]));
+  const retry = guard.settled({ aborted: false });
+  assert.match(retry.retry, /readme/);
+});
+
 const piDir = process.env.PI_CODING_AGENT_DIR ?? join(process.env.APPDATA ?? "", "npm", "node_modules", "@earendil-works", "pi-coding-agent");
 const jitiPath = join(piDir, "node_modules", "jiti", "lib", "jiti.mjs");
 test("extension wiring under Pi's loader: retry via sendUserMessage, then a single non-turn alert", { skip: !existsSync(jitiPath) && "jiti from Pi not found" }, async () => {

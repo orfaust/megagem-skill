@@ -39,9 +39,16 @@ The assignment is not a completion claim. Edits are always delegated to a worker
 
 ## Automatic feedback
 
-When a worker dispatched by Megagem settles or blocks, the extension sends one automatic message to the same Pi session (queued if Pi is busy). Pi then checks the live Herdr state, files and tests and reports the **verified** result or blocker in the main chat. A settled state alone is never proof of success.
+When a worker dispatched by Megagem settles or blocks in an interactive Pi session, the extension does **not** start the coordinator turn immediately. It shows a persistent banner naming the worker agent, its live Herdr workspace/tab labels and the state (for example `Worker agent reviewer (api / login) finished (settled). Press Enter to see the result.`), then waits for you:
 
-If Pi answers that message with nothing visible, the extension reminds it once; if that fails too, you get a warning plus a saved alert saying the result is **not verified**. Closing Pi stops monitoring; reopening the session restores pending watches.
+- **Enter** releases the notice and wakes Pi, which checks the live Herdr state, files and tests and reports the **verified** result or blocker in the main chat. A settled state alone is never proof of success.
+- **Ctrl+X** closes the notice without waking Pi, for when you prefer to read the worker tab directly.
+
+Several pending notices are released (or dismissed) together, oldest first. If you are already typing a message, Enter submits your message and leaves the notice in place. In RPC/print/JSON there is no banner, so delivery stays immediate.
+
+The banner follows `PI_MEGAGEM_LANG` (a short code such as `it`); with no setting it detects the language of your last message and otherwise uses English. Adding a language means adding one entry to [`extensions/banner-text.ts`](extensions/banner-text.ts); the coordination logic holds no language catalogue.
+
+If Pi answers the released message with nothing visible, the extension reminds it once; if that fails too, you get a warning plus a saved alert saying the result is **not verified**. Closing Pi stops monitoring; reopening the session restores pending watches, but a banner that was still waiting for Enter is not restored.
 
 ## Quiet mode
 
@@ -55,7 +62,7 @@ If Pi answers that message with nothing visible, the extension reminds it once; 
 | No automatic message after a worker finishes | Only the skill is loaded: install the package and `/reload`. |
 | Updated an older install and old behavior persists | Restart Pi once; `/reload` does not refresh previously loaded `.mjs` helpers. |
 | `/quiet-mode` missing | `extensions/megagem-quiet.ts` is not loaded; check `pi list`. |
-| Extension notices are in English | The extension cannot detect your language; Pi's own replies follow it. |
+| Extension notices are in English | The `[Megagem automatic …]` event and alerts are English; the completion banner follows `PI_MEGAGEM_LANG` or your last message. |
 
 ## Development
 
@@ -63,6 +70,6 @@ If Pi answers that message with nothing visible, the extension reminds it once; 
 node --test tests/*.test.mjs
 ```
 
-The tests are deterministic: monitor and dispatch logic, the empty-reply guard, quiet-mode parsing/rendering (using Pi's real `ToolExecutionComponent` when Pi is found via `PI_CODING_AGENT_DIR` or the global npm prefix) and the language/assignment-format rules. They do not exercise a real worker or live Herdr.
+The tests are deterministic: monitor and dispatch logic, the empty-reply guard, the deferred completion banner (defer, Enter release, Ctrl+X dismiss, non-interactive fallback, notice language), quiet-mode parsing/rendering (using Pi's real `ToolExecutionComponent` when Pi is found via `PI_CODING_AGENT_DIR` or the global npm prefix) and the language/assignment-format rules. They do not exercise a real worker or live Herdr.
 
-Layout: `skills/megagem/SKILL.md` (workflow), `extensions/megagem-feedback.ts` (dispatch tool, monitor, guard), `extensions/megagem-quiet.ts` (quiet mode), `tests/`. Maintainer notes and the manual verification scenarios (run only in an isolated Herdr session, never on live workspaces) are in [`AGENTS.md`](AGENTS.md).
+Layout: `skills/megagem/SKILL.md` (workflow), `extensions/megagem-feedback.ts` (dispatch tool, monitor, guard, delivery), `extensions/pending-notice.ts` (banner state and key handling), `extensions/banner-text.ts` (localized banner text), `extensions/megagem-quiet.ts` (quiet mode), `tests/`. Maintainer notes and the manual verification scenarios (run only in an isolated Herdr session, never on live workspaces) are in [`AGENTS.md`](AGENTS.md).

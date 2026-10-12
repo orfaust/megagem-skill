@@ -28,11 +28,19 @@ function parseEvent(message: any) {
  */
 export function createFeedbackGuard() {
   const pending = new Map<string, Pending>();
+  // Events deferred to the user (a banner is waiting for Enter). They must NOT be
+  // treated as unanswered: the coordinator turn legitimately has not started yet.
+  const awaitingUser = new Set<string>();
   const describe = (items: Pending[]) => items.map(item => `${item.task} (${item.state}, pane ${item.pane})`).join("; ");
 
   return {
     get pending() { return pending.size; },
-    reset() { pending.clear(); },
+    get deferred() { return awaitingUser.size; },
+    /** Mark an event as waiting for the user, not as missing a reply. */
+    defer(id: string) { awaitingUser.add(id); },
+    /** The event was released or dismissed: stop exempting it. */
+    release(id: string) { awaitingUser.delete(id); },
+    reset() { pending.clear(); awaitingUser.clear(); },
     /** Feed every message_end event. */
     onMessageEnd(message: any) {
       const event = parseEvent(message);
@@ -44,6 +52,8 @@ export function createFeedbackGuard() {
     },
     /** agent_settled: nothing else will run automatically. Returns a retry prompt and/or a final alert. */
     settled({ aborted = false }: { aborted?: boolean } = {}) {
+      // Events still waiting for the user on a banner are deliberately unanswered.
+      for (const id of [...pending.keys()]) if (awaitingUser.has(id)) pending.delete(id);
       if (pending.size === 0) return undefined;
       const items = [...pending.values()];
       const fresh = items.filter(item => item.attempts === 0);
