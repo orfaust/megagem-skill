@@ -70,19 +70,11 @@ test("typed text, other user messages and custom messages are not events; worker
   assert.match(last.alert.text, /one.*two/);
 });
 
-test("(e) a deferred event is marked awaiting the user and never retried or alerted", () => {
+test("immediate event is never exempt from the reply guard", () => {
   const guard = createFeedbackGuard();
-  guard.defer("j1");
-  assert.equal(guard.deferred, 1);
-  assert.equal(guard.pending, 0);
-  assert.equal(guard.settled({ aborted: false }), undefined, "settle while waiting for Enter must not retry or alert");
-  // Once released, the user-role event message starts the normal guard cycle again.
-  guard.release("j1");
-  assert.equal(guard.deferred, 0);
   guard.onMessageEnd(eventMessage("j1"));
   guard.onMessageEnd(assistant([]));
-  const retry = guard.settled({ aborted: false });
-  assert.match(retry.retry, /readme/);
+  assert.match(guard.settled({ aborted: false }).retry, /readme/);
 });
 
 const piDir = process.env.PI_CODING_AGENT_DIR ?? join(process.env.APPDATA ?? "", "npm", "node_modules", "@earendil-works", "pi-coding-agent");
@@ -94,7 +86,7 @@ test("extension wiring under Pi's loader: retry via sendUserMessage, then a sing
   const on = {}, users = [], customs = [], notes = [];
   mod.default({ on: (name, fn) => { on[name] = fn; }, appendEntry() {}, registerTool() {},
     sendUserMessage: (...a) => users.push(a), sendMessage: (...a) => customs.push(a) });
-  const ctx = { hasUI: true, ui: { notify: (...a) => notes.push(a) }, sessionManager: { getBranch: () => [] } };
+  const ctx = { hasUI: true, ui: { notify: (...a) => notes.push(a), onTerminalInput: () => { throw new Error("No input gate allowed"); } }, sessionManager: { getBranch: () => [] } };
   on.session_start({}, ctx);
   on.message_end({ message: eventMessage("j1") }); on.message_end({ message: assistant([]) });
   on.agent_settled({ aborted: false }, ctx);
@@ -104,5 +96,22 @@ test("extension wiring under Pi's loader: retry via sendUserMessage, then a sing
   on.agent_settled({ aborted: false }, ctx); on.agent_settled({ aborted: false }, ctx);
   assert.equal(users.length, 1); assert.equal(customs.length, 1); assert.equal(notes.length, 1);
   assert.deepEqual(customs[0][1], { triggerTurn: false });
+  on.session_shutdown({});
+});
+
+test("actual extension delivers worker notifications without a terminal-input or banner gate", { skip: !existsSync(jitiPath) && "jiti from Pi not found" }, async () => {
+  const { createJiti } = await import(pathToFileURL(jitiPath).href);
+  const entry = join(import.meta.dirname, "..", "extensions", "megagem-feedback.ts");
+  const mod = await createJiti(import.meta.url, { alias: { "@earendil-works/pi-ai": join(piDir, "node_modules", "@earendil-works", "pi-ai") } }).import(entry);
+  const on = {}, users = [], tools = {}, entries = [];
+  mod.default({ on: (name, fn) => { on[name] = fn; }, appendEntry: (...args) => entries.push(args),
+    registerTool: tool => { tools[tool.name] = tool; }, sendUserMessage: (...args) => users.push(args), sendMessage() {} });
+  const ui = { onTerminalInput() { throw new Error("No key handler allowed"); }, setWidget() { throw new Error("No banner allowed"); } };
+  const ctx = { hasUI: true, mode: "tui", ui, modelRegistry: {}, sessionManager: { getBranch: () => [] } };
+  on.session_start({}, ctx);
+  assert.ok(tools.megagem_dispatch);
+  // Monitor's delivery is also exercised via publishFeedbackToPi and createImmediateDelivery tests.
+  assert.deepEqual(users, []);
+  assert.deepEqual(entries, []);
   on.session_shutdown({});
 });

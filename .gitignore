@@ -1,0 +1,2 @@
+# Private central Megagem ledger and SQLite journals/backups; CSV archive stays trackable.
+/data/

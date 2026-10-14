@@ -1,116 +1,61 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPendingNotices, createDeferredDelivery, isDismissKey, isEnterKey, PENDING_WIDGET_KEY } from "../extensions/pending-notice.ts";
-import { noticeText } from "../extensions/banner-text.ts";
+import { createImmediateDelivery } from "../extensions/pending-notice.ts";
+import { createFeedbackGuard, EVENT_NOTICE } from "../extensions/feedback-guard.ts";
+import { publishFeedbackToPi } from "../extensions/feedback-monitor.ts";
 
-const job = (over = {}) => ({ id: "j1", state: "settled", agentName: "moequ-worker", workspaceLabel: "moequ", tabLabel: "worker", ...over });
+const job = (over = {}) => ({ id: "j1", state: "settled", paneId: "w1:p1", ...over });
 
-function rig({ language = "en", editor = "" } = {}) {
-  let widget;
-  const published = [];
-  const durable = [];
-  const removed = [];
-  const notices = createPendingNotices({
-    ui: {
-      setWidget: (key, content) => { widget = { key, content }; },
-      getEditorText: () => editor,
-    },
-    render: (entry, lang) => noticeText(entry, lang),
-    getLanguage: () => language,
-    publish: entry => published.push(entry),
-    sendDurable: message => durable.push(message),
-    onRemove: entry => removed.push(entry),
-  });
-  return { notices, published, durable, removed, widget: () => widget };
-}
-
-test("(a) settle defers: no coordinator turn, a persistent banner is shown", () => {
-  const r = rig();
-  r.notices.deliver(job());
-  assert.equal(r.published.length, 0, "no user-role turn on settle");
-  assert.equal(r.notices.size, 1);
-  const widget = r.widget();
-  assert.equal(widget.key, PENDING_WIDGET_KEY);
-  assert.match(widget.content[0], /moequ-worker \(moequ \/ worker\) finished \(settled\)\. Press Enter to see the result\./);
-  assert.match(widget.content.at(-1), /Ctrl\+X/);
-  assert.equal(r.durable.length, 1, "durable non-turn transcript trace");
-  assert.equal(r.durable[0].customType, "megagem-feedback-pending");
-  assert.equal(r.durable[0].display, true);
+test("settled, blocked and uncertain events are published immediately without a keypress in any mode", () => {
+  for (const mode of ["tui", "rpc", "print", "json"]) {
+    const seen = [];
+    const delivery = createImmediateDelivery({ publish: entry => seen.push(entry) });
+    for (const state of ["settled", "blocked", "uncertain", "interrupted", "monitor_error"])
+      delivery.deliver(job({ id: `${mode}-${state}`, state }));
+    assert.deepEqual(seen.map(entry => entry.state), ["settled", "blocked", "uncertain", "interrupted", "monitor_error"]);
+    assert.deepEqual(seen.map(entry => entry.id), ["settled", "blocked", "uncertain", "interrupted", "monitor_error"].map(state => `${mode}-${state}`));
+  }
 });
 
-test("(b) Enter is consumed only with a pending notice and releases the turn", () => {
-  const r = rig();
-  r.notices.deliver(job());
-  assert.deepEqual(r.notices.handleInput("\r"), { consume: true });
-  assert.deepEqual(r.published.map(entry => entry.id), ["j1"]);
-  assert.equal(r.notices.size, 0);
-  assert.equal(r.widget().content, undefined, "banner cleared");
-  assert.deepEqual(r.removed.map(entry => entry.id), ["j1"]);
+test("back-to-back jobs retain worker identity, order and verified-state warning in the actual Pi follow-up", () => {
+  const messages = [];
+  const delivery = createImmediateDelivery({ publish: entry => publishFeedbackToPi({ sendUserMessage: (...args) => messages.push(args) }, entry) });
+  const first = job({ id: "one", state: "blocked", taskLabel: "first task", workspaceId: "w1", tabId: "w1:t1", paneId: "w1:p1", sessionId: "s1", project: "C:/one" });
+  const second = job({ id: "two", state: "interrupted", taskLabel: "second task", workspaceId: "w2", tabId: "w2:t2", paneId: "w2:p2", sessionId: "s2", project: "C:/two" });
+  delivery.deliver(first);
+  delivery.deliver(second);
+  assert.equal(messages.length, 2);
+  for (const [index, entry] of [first, second].entries()) {
+    const [text, options] = messages[index];
+    assert.deepEqual(options, { deliverAs: "followUp" });
+    assert.ok(text.startsWith(EVENT_NOTICE));
+    const payload = JSON.parse(/Megagem worker event: (\{.*?\})\. /s.exec(text)[1]);
+    assert.deepEqual(payload, { feedbackId: entry.id, state: entry.state, task: entry.taskLabel, project: entry.project,
+      pane: entry.paneId, tab: entry.tabId, workspace: entry.workspaceId, session: entry.sessionId });
+    assert.match(text, /NOT proof the task succeeded/);
+  }
 });
 
-test("(c) Enter falls through when there is no pending notice or the editor has text", () => {
-  const empty = rig();
-  assert.equal(empty.notices.handleInput("\r"), undefined);
-  assert.equal(empty.published.length, 0);
-
-  const typing = rig({ editor: "my own message" });
-  typing.notices.deliver(job());
-  assert.equal(typing.notices.handleInput("\r"), undefined, "user submit is left untouched");
-  assert.equal(typing.published.length, 0);
-  assert.equal(typing.notices.size, 1);
+test("all exceptional worker states demand verification rather than claiming success or authorizing queued prompts", () => {
+  const seen = [];
+  const delivery = createImmediateDelivery({ publish: entry => publishFeedbackToPi({ sendUserMessage: text => seen.push(text) }, entry) });
+  for (const state of ["blocked", "uncertain", "interrupted", "monitor_error"])
+    delivery.deliver(job({ id: state, state, taskLabel: state, workspaceId: "w", tabId: "w:t", sessionId: "s" }));
+  assert.equal(seen.length, 4);
+  for (const [index, state] of ["blocked", "uncertain", "interrupted", "monitor_error"].entries()) {
+    assert.match(seen[index], new RegExp(`"state":"${state}"`));
+    assert.match(seen[index], /check herdr agent get\/read.*verify actual files\/tests/);
+    assert.match(seen[index], /do not approve, repeat the prompt or run queued work automatically/);
+  }
 });
 
-test("(d) the dismiss key clears the notice without waking the coordinator", () => {
-  const r = rig();
-  r.notices.deliver(job());
-  assert.deepEqual(r.notices.handleInput("\x18"), { consume: true });
-  assert.deepEqual(r.published, []);
-  assert.equal(r.notices.size, 0);
-  assert.equal(r.widget().content, undefined);
-  assert.equal(r.durable.at(-1).customType, "megagem-feedback-dismissed");
-});
-
-test("multiple pending notices release together, oldest first", () => {
-  const r = rig();
-  r.notices.deliver(job({ id: "old" }));
-  r.notices.deliver(job({ id: "new" }));
-  assert.equal(r.widget().content.length, 3, "two lines plus the shared hint");
-  r.notices.handleInput("\r");
-  assert.deepEqual(r.published.map(entry => entry.id), ["old", "new"]);
-});
-
-test("(f) with no UI the delivery stays immediate and nothing is deferred", async () => {
-  const immediate = [];
-  const deferred = [];
-  const delivery = createDeferredDelivery({
-    notices: { deliver: entry => deferred.push(entry) },
-    hasUI: () => false,
-    publishImmediate: entry => immediate.push(entry),
-    markDeferred: entry => deferred.push(`marked:${entry.id}`),
-  });
-  await delivery.deliver(job());
-  assert.deepEqual(immediate.map(entry => entry.id), ["j1"]);
-  assert.deepEqual(deferred, [], "no banner, no deferral without UI");
-});
-
-test("interactive delivery defers, marks, enriches and keeps dispatch order", async () => {
-  const order = [];
-  const delivery = createDeferredDelivery({
-    notices: { deliver: entry => order.push(`deliver:${entry.id}:${entry.tabLabel}`) },
-    hasUI: () => true,
-    publishImmediate: entry => order.push(`immediate:${entry.id}`),
-    markDeferred: entry => order.push(`mark:${entry.id}`),
-    enrich: async entry => { await new Promise(resolve => setImmediate(resolve)); return { ...entry, tabLabel: "enriched" }; },
-  });
-  const first = delivery.deliver(job({ id: "a" }));
-  const second = delivery.deliver(job({ id: "b" }));
-  await Promise.all([first, second]);
-  assert.deepEqual(order, ["mark:a", "mark:b", "deliver:a:enriched", "deliver:b:enriched"]);
-});
-
-test("key matcher: Enter and Ctrl+X only, modified Enter is untouched", () => {
-  for (const data of ["\r", "\x1bOM", "\x1b[13u", "\x1b[13;1u"]) assert.equal(isEnterKey(data), true, data);
-  for (const data of ["\n", "\x1b\r", "\x1b[13;2u", "\x1b[13;5u", "x", "\x1b"]) assert.equal(isEnterKey(data), false, data);
-  for (const data of ["\x18", "\x1b[120;5u"]) assert.equal(isDismissKey(data), true, data);
-  for (const data of ["x", "\x1bx", "\x1b[120u"]) assert.equal(isDismissKey(data), false, data);
+test("immediate worker feedback retains one reminder and alert when coordinator replies empty", () => {
+  const guard = createFeedbackGuard();
+  const delivery = createImmediateDelivery({ publish: entry => {
+    guard.onMessageEnd({ role: "user", content: `${EVENT_NOTICE}Megagem worker event: ${JSON.stringify({ feedbackId: entry.id, task: "task", state: entry.state, pane: entry.paneId })}. Verify first.` });
+  } });
+  delivery.deliver(job());
+  assert.equal(guard.pending, 1);
+  assert.match(guard.settled().retry, /not proof of success/i);
+  assert.match(guard.settled().alert.text, /not verified/i);
 });

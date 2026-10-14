@@ -22,7 +22,7 @@ function identity(agent, job) {
 }
 
 /** Monitor only prompts Megagem actually delivered; never infer success from a terminal title. */
-export function createFeedbackMonitor({ run, publish, save, schedule = setTimeout, cancel = clearTimeout, now = Date.now, intervalMs = 2000 }) {
+export function createFeedbackMonitor({ run, publish, save, authorize = async () => { throw new Error("Dispatch policy unavailable; no prompt sent"); }, schedule = setTimeout, cancel = clearTimeout, now = Date.now, intervalMs = 2000 }) {
   const jobs = new Map();
   const timers = new Map();
   let generation = 0;
@@ -69,12 +69,13 @@ export function createFeedbackMonitor({ run, publish, save, schedule = setTimeou
     arm(job);
   }
 
-  async function dispatch({ paneId, tabId, workspaceId, sessionId, project, taskLabel, prompt }) {
+  async function dispatch({ paneId, tabId, workspaceId, sessionId, project, taskLabel, prompt, consent, requestedAgent, requestedProvider }) {
     if (Array.from(jobs.values()).some(job => job.paneId === paneId)) throw new Error("A Megagem prompt is already being monitored in this pane");
-    const requested = { paneId, tabId, workspaceId, sessionId, project };
+    const requested = { paneId, tabId, workspaceId, sessionId, project, taskLabel, prompt };
     const before = await agentGet(paneId);
     if (!identity(before, requested) || !SETTLED.has(before.agent_status) || before.interactive_ready === false ||
       typeof before.state_change_seq !== "number") throw new Error("Worker identity or readiness could not be verified; prompt not sent");
+    await authorize({ ...requested, consent, requestedAgent, requestedProvider }, before); // Last check before prompt; must re-read preferences on every invocation.
     const response = await run(["agent", "prompt", paneId, prompt]); // Never --wait.
     if (response.result?.type !== "agent_prompted" || !identity(response.result.agent, requested)) {
       throw new Error("Prompt submission is uncertain: inspect Herdr before retrying; never duplicate blindly");

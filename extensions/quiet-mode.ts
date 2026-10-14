@@ -34,6 +34,17 @@ function component(render) {
   return { render, invalidate() {} };
 }
 
+// The host's bash/powershell renderer starts a one-second timer for "Elapsed" / "Took".
+// Quiet replaces that renderer; cancel an interval left by a previously visible row so
+// an invisible tool does not keep requesting redraws. Do not alter the recorded duration.
+function stopVisibleToolTimer(context) {
+  const state = context?.state;
+  if (state?.interval !== undefined) {
+    clearInterval(state.interval);
+    state.interval = undefined;
+  }
+}
+
 /**
  * Tool renderer resolver for pi.registerToolRenderer(). It only changes how Pi *draws* calls and results in the
  * TUI; tools, approvals, tool_call/tool_result handlers and session history are untouched. While quiet mode is
@@ -46,14 +57,17 @@ export function createQuietToolRenderer(quiet) {
     if (!base && !quiet.enabled) return undefined;
     return {
       get renderShell() { return quiet.enabled ? "self" : base?.renderShell; },
-      get renderCall() { return quiet.enabled ? () => component(() => []) : base?.renderCall; },
+      get renderCall() { return quiet.enabled ? (_args, _theme, context) => { stopVisibleToolTimer(context); return component(() => []); } : base?.renderCall; },
       get renderResult() {
         return quiet.enabled
-          ? (_result, _options, theme, context) => component(width => {
-            if (!context?.isError || context.isPartial || width < 1) return [];
-            const text = Array.from(ERROR_NOTICE).slice(0, width).join("");
-            return [theme?.fg ? theme.fg("error", text) : text];
-          })
+          ? (_result, _options, theme, context) => {
+            stopVisibleToolTimer(context);
+            return component(width => {
+              if (!context?.isError || context.isPartial || width < 1) return [];
+              const text = Array.from(ERROR_NOTICE).slice(0, width).join("");
+              return [theme?.fg ? theme.fg("error", text) : text];
+            });
+          }
           : base?.renderResult;
       },
     };

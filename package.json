@@ -13,7 +13,7 @@
   ],
   "pi": {
     "skills": ["./skills/megagem"],
-    "extensions": ["./extensions/megagem-feedback.ts", "./extensions/megagem-quiet.ts"]
+    "extensions": ["./extensions/megagem-feedback.ts", "./extensions/megagem-quiet.ts", "./extensions/megagem-provider.ts", "./extensions/megagem-command.ts"]
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

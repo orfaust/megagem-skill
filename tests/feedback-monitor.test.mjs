@@ -19,7 +19,7 @@ function rig() {
     if (args[1] === "prompt") return { result: { type: "agent_prompted", agent: { ...live } } };
     throw Error("Unexpected command");
   };
-  const monitor = createFeedbackMonitor({ run, save: data => stored.push(data), publish: data => events.push(data),
+  const monitor = createFeedbackMonitor({ run, authorize: async () => {}, save: data => stored.push(data), publish: data => events.push(data),
     now: () => time, schedule: callback => { timers.push(callback); return callback; }, cancel: callback => {
       const index = timers.indexOf(callback); if (index >= 0) timers.splice(index, 1);
     } });
