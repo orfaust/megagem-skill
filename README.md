@@ -1,5 +1,7 @@
 # Megagem
 
+> **FROZEN / RETIRED — 2026-10-14.** This repository is the Megagem prototype. Its successor is the private [`orfaust/megagem`](https://github.com/orfaust/megagem) repository at `C:\Users\carlorfeo\Documents\projects\megagem\megagem`. The successor holds the specification (`SPEC.md`), in-progress service code (`src/`), Pi extension package (`extensions/`, `skills/`), and central operations ledger (`operations_log.csv` + `data/megagem.sqlite3`). This repository is kept only as history and as a rollback target for the Pi package pointer; it is no longer edited. Nothing operational remains here: the ledger and database were moved out, and `data/` is empty. The material below is preserved as prototype documentation.
+
 A Pi skill plus a companion Pi extension that coordinate coding workers in Herdr. You keep talking to the **main Pi chat**; Pi hands bounded tasks to visible worker tabs (Pi, Claude or Codex), replies at once, and comes back with a verified result when the worker settles. You can give Pi new instructions while workers run, and you can open or intervene in any worker tab.
 
 ## Requirements
